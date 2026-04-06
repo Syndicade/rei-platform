@@ -8,6 +8,7 @@ const navItems = [
   { label: 'Dashboard',   href: '/dashboard' },
   { label: 'Properties',  href: '/dashboard/properties' },
   { label: 'Pipeline',    href: '/dashboard/pipeline' },
+  { label: 'Deals', href: '/dashboard/deals' },
   { label: 'Contacts',    href: '/dashboard/contacts' },
   { label: 'Documents',   href: '/dashboard/documents' },
   { label: 'Map',         href: '/dashboard/map' },
