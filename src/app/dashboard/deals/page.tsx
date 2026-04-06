@@ -100,7 +100,7 @@ export default function DealsIndexPage() {
         contract_date: d.contract_date,
         closing_date: d.closing_date,
         purchase_price: d.purchase_price,
-        property: d.property as { address: string; city: string; state: string },
+        property: (Array.isArray(d.property) ? d.property[0] : d.property) as { address: string; city: string; state: string },
         taskStats: {
           total: dealTasks.length,
           completed: dealTasks.filter((t) => t.completed).length,
