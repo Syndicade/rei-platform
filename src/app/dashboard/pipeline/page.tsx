@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 
@@ -29,13 +29,13 @@ type Stage = {
 }
 
 const DEFAULT_STAGES: Stage[] = [
-  { id: 'new-match',       label: 'New Match',       hiddenByDefault: false },
-  { id: 'saved',           label: 'Saved',           hiddenByDefault: false },
-  { id: 'analyzing',       label: 'Analyzing',       hiddenByDefault: false },
-  { id: 'pursuing',        label: 'Pursuing',        hiddenByDefault: false },
-  { id: 'under-contract',  label: 'Under Contract',  hiddenByDefault: false },
-  { id: 'closed',          label: 'Closed',          hiddenByDefault: true  },
-  { id: 'lost',            label: 'Lost',            hiddenByDefault: true  },
+  { id: 'new-match',      label: 'New Match',      hiddenByDefault: false },
+  { id: 'saved',          label: 'Saved',          hiddenByDefault: false },
+  { id: 'analyzing',      label: 'Analyzing',      hiddenByDefault: false },
+  { id: 'pursuing',       label: 'Pursuing',       hiddenByDefault: false },
+  { id: 'under-contract', label: 'Under Contract', hiddenByDefault: false },
+  { id: 'closed',         label: 'Closed',         hiddenByDefault: true  },
+  { id: 'lost',           label: 'Lost',           hiddenByDefault: true  },
 ]
 
 const STORAGE_KEY = 'rei-pipeline-stages'
@@ -63,10 +63,11 @@ export default function PipelinePage() {
   const [managing, setManaging] = useState(false)
   const [editingStages, setEditingStages] = useState<Stage[]>([])
   const [newLabel, setNewLabel] = useState('')
+  const [dragOverStage, setDragOverStage] = useState<string | null>(null)
+  const dragPropertyId = useRef<string | null>(null)
+  const dragSourceStage = useRef<string | null>(null)
 
-  useEffect(() => {
-    setStages(loadStages())
-  }, [])
+  useEffect(() => { setStages(loadStages()) }, [])
 
   useEffect(() => {
     async function load() {
@@ -79,6 +80,48 @@ export default function PipelinePage() {
     }
     load()
   }, [])
+
+  function handleDragStart(propertyId: string, stageLabel: string) {
+    dragPropertyId.current = propertyId
+    dragSourceStage.current = stageLabel
+  }
+
+  function handleDragOver(e: React.DragEvent, stageLabel: string) {
+    e.preventDefault()
+    setDragOverStage(stageLabel)
+  }
+
+  function handleDragLeave() {
+    setDragOverStage(null)
+  }
+
+  async function handleDrop(e: React.DragEvent, targetStageLabel: string) {
+    e.preventDefault()
+    setDragOverStage(null)
+    const propId = dragPropertyId.current
+    if (!propId || dragSourceStage.current === targetStageLabel) return
+
+    // Optimistically update UI
+    setProperties(prev =>
+      prev.map(p => p.id === propId ? { ...p, pipeline_status: targetStageLabel } : p)
+    )
+
+    // Save to Supabase
+    const { error } = await supabase
+      .from('properties')
+      .update({ pipeline_status: targetStageLabel })
+      .eq('id', propId)
+
+    if (error) {
+      // Revert on failure
+      setProperties(prev =>
+        prev.map(p => p.id === propId ? { ...p, pipeline_status: dragSourceStage.current! } : p)
+      )
+    }
+
+    dragPropertyId.current = null
+    dragSourceStage.current = null
+  }
 
   function openManage() {
     setEditingStages(stages.map(s => ({ ...s })))
@@ -124,10 +167,8 @@ export default function PipelinePage() {
     setEditingStages(updated)
   }
 
-async function handleSaveStages() {
+  async function handleSaveStages() {
     const cleaned = editingStages.filter(s => s.label.trim() !== '')
-
-    // Find any stages whose label changed and update matching properties in Supabase
     for (const editedStage of cleaned) {
       const original = stages.find(s => s.id === editedStage.id)
       if (original && original.label !== editedStage.label) {
@@ -137,7 +178,6 @@ async function handleSaveStages() {
           .eq('pipeline_status', original.label)
       }
     }
-
     saveStages(cleaned)
     setStages(cleaned)
     setManaging(false)
@@ -149,14 +189,10 @@ async function handleSaveStages() {
     return properties.filter(p => p.pipeline_status === stage.label)
   }
 
-  if (loading) {
-    return <div className="p-8 text-gray-400 text-sm">Loading pipeline...</div>
-  }
+  if (loading) return <div className="p-8 text-gray-400 text-sm">Loading pipeline...</div>
 
   return (
     <div className="flex flex-col h-full">
-
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900">Pipeline</h1>
@@ -180,7 +216,6 @@ async function handleSaveStages() {
         </div>
       </div>
 
-      {/* Kanban board */}
       <div className="overflow-x-auto pb-4">
         <div
           className="grid gap-4"
@@ -188,8 +223,15 @@ async function handleSaveStages() {
         >
           {visibleStages.map(stage => {
             const stageProperties = getPropertiesForStage(stage)
+            const isOver = dragOverStage === stage.label
             return (
-              <div key={stage.id} className="flex flex-col min-h-0">
+              <div
+                key={stage.id}
+                className="flex flex-col min-h-0"
+                onDragOver={(e) => handleDragOver(e, stage.label)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, stage.label)}
+              >
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
                     {stage.label}
@@ -198,8 +240,8 @@ async function handleSaveStages() {
                     {stageProperties.length}
                   </span>
                 </div>
-                <div className="flex flex-col gap-3">
-                  {stageProperties.length === 0 ? (
+                <div className={`flex flex-col gap-3 min-h-24 rounded-xl p-2 transition-colors ${isOver ? 'bg-blue-50 border border-blue-200' : 'border border-transparent'}`}>
+                  {stageProperties.length === 0 && !isOver ? (
                     <div className="border border-dashed border-gray-200 rounded-xl p-6 text-center text-xs text-gray-400">
                       No properties
                     </div>
@@ -209,6 +251,7 @@ async function handleSaveStages() {
                         key={property.id}
                         property={property}
                         onClick={() => router.push(`/dashboard/properties/${property.id}`)}
+                        onDragStart={() => handleDragStart(property.id, property.pipeline_status)}
                       />
                     ))
                   )}
@@ -219,113 +262,67 @@ async function handleSaveStages() {
         </div>
       </div>
 
-      {/* Manage stages panel */}
       {managing && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
             <h2 className="text-base font-semibold text-gray-900 mb-1">Manage stages</h2>
             <p className="text-sm text-gray-500 mb-5">Rename, reorder, add, or remove pipeline stages.</p>
-
             <div className="flex flex-col gap-2 mb-5">
               {editingStages.map((stage, index) => (
                 <div key={stage.id} className="flex items-center gap-2">
-
-                  {/* Reorder buttons */}
                   <div className="flex flex-col gap-0.5">
-                    <button
-                      onClick={() => handleMoveUp(index)}
-                      disabled={index === 0}
-                      className="text-gray-300 hover:text-gray-600 disabled:opacity-20 text-xs leading-none"
-                    >
-                      ▲
-                    </button>
-                    <button
-                      onClick={() => handleMoveDown(index)}
-                      disabled={index === editingStages.length - 1}
-                      className="text-gray-300 hover:text-gray-600 disabled:opacity-20 text-xs leading-none"
-                    >
-                      ▼
-                    </button>
+                    <button onClick={() => handleMoveUp(index)} disabled={index === 0}
+                      className="text-gray-300 hover:text-gray-600 disabled:opacity-20 text-xs leading-none">▲</button>
+                    <button onClick={() => handleMoveDown(index)} disabled={index === editingStages.length - 1}
+                      className="text-gray-300 hover:text-gray-600 disabled:opacity-20 text-xs leading-none">▼</button>
                   </div>
-
-                  {/* Label input */}
-                  <input
-                    value={stage.label}
-                    onChange={e => handleLabelChange(stage.id, e.target.value)}
-                    className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900"
-                  />
-
-                  {/* Hidden by default toggle */}
-                  <button
-                    onClick={() => handleToggleHidden(stage.id)}
-                    title={stage.hiddenByDefault ? 'Hidden by default — click to show by default' : 'Visible by default — click to hide by default'}
-                    className={`text-xs px-2 py-1 rounded-md border transition-colors ${
-                      stage.hiddenByDefault
-                        ? 'border-gray-200 text-gray-400 bg-gray-50'
-                        : 'border-blue-200 text-blue-600 bg-blue-50'
-                    }`}
-                  >
+                  <input value={stage.label} onChange={e => handleLabelChange(stage.id, e.target.value)}
+                    className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900" />
+                  <button onClick={() => handleToggleHidden(stage.id)}
+                    className={`text-xs px-2 py-1 rounded-md border transition-colors ${stage.hiddenByDefault ? 'border-gray-200 text-gray-400 bg-gray-50' : 'border-blue-200 text-blue-600 bg-blue-50'}`}>
                     {stage.hiddenByDefault ? 'Hidden' : 'Visible'}
                   </button>
-
-                  {/* Delete */}
-                  <button
-                    onClick={() => handleDeleteStage(stage.id)}
-                    className="text-gray-300 hover:text-red-500 text-sm transition-colors"
-                  >
-                    ✕
-                  </button>
-
+                  <button onClick={() => handleDeleteStage(stage.id)}
+                    className="text-gray-300 hover:text-red-500 text-sm transition-colors">✕</button>
                 </div>
               ))}
             </div>
-
-            {/* Add new stage */}
             <div className="flex gap-2 mb-6">
-              <input
-                value={newLabel}
-                onChange={e => setNewLabel(e.target.value)}
+              <input value={newLabel} onChange={e => setNewLabel(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleAddStage()}
                 placeholder="New stage name..."
-                className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm"
-              />
-              <button
-                onClick={handleAddStage}
-                className="px-4 py-1.5 bg-gray-800 text-white text-sm rounded-lg hover:bg-gray-700"
-              >
-                Add
-              </button>
+                className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
+              <button onClick={handleAddStage}
+                className="px-4 py-1.5 bg-gray-800 text-white text-sm rounded-lg hover:bg-gray-700">Add</button>
             </div>
-
-            {/* Actions */}
             <div className="flex gap-2">
-              <button
-                onClick={handleSaveStages}
-                className="flex-1 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
-              >
-                Save changes
-              </button>
-              <button
-                onClick={() => setManaging(false)}
-                className="flex-1 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200"
-              >
-                Cancel
-              </button>
+              <button onClick={handleSaveStages}
+                className="flex-1 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">Save changes</button>
+              <button onClick={() => setManaging(false)}
+                className="flex-1 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200">Cancel</button>
             </div>
-
           </div>
         </div>
       )}
-
     </div>
   )
 }
 
-function PropertyCard({ property, onClick }: { property: Property; onClick: () => void }) {
+function PropertyCard({
+  property,
+  onClick,
+  onDragStart,
+}: {
+  property: Property
+  onClick: () => void
+  onDragStart: () => void
+}) {
   return (
-    <button
+    <div
+      draggable
+      onDragStart={onDragStart}
       onClick={onClick}
-      className="text-left w-full bg-white border border-gray-200 rounded-xl p-4 hover:border-gray-400 hover:shadow-sm transition-all"
+      className="cursor-grab active:cursor-grabbing text-left w-full bg-white border border-gray-200 rounded-xl p-4 hover:border-gray-400 hover:shadow-sm transition-all"
     >
       <p className="text-sm font-medium text-gray-900 leading-snug">{property.address}</p>
       <p className="text-xs text-gray-400 mt-0.5">{property.city}, {property.state} {property.zip}</p>
@@ -355,6 +352,6 @@ function PropertyCard({ property, onClick }: { property: Property; onClick: () =
           {'★'.repeat(property.rating)}{'☆'.repeat(5 - property.rating)}
         </div>
       )}
-    </button>
+    </div>
   )
 }
