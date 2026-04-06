@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 
@@ -347,10 +348,19 @@ function PropertyCard({
           </div>
         )}
       </div>
-      {property.rating && (
+{property.rating && (
         <div className="mt-3 text-amber-400 text-xs tracking-tight">
           {'★'.repeat(property.rating)}{'☆'.repeat(5 - property.rating)}
         </div>
+      )}
+      {property.pipeline_status === 'Under Contract' && (
+        <Link
+          href={`/dashboard/deals/${property.id}`}
+          onClick={(e) => e.stopPropagation()}
+          className="mt-3 block text-xs text-blue-600 hover:underline"
+        >
+          View Deal Tracker →
+        </Link>
       )}
     </div>
   )
