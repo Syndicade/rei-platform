@@ -442,20 +442,17 @@ export default function PropertyDetailPage() {
               <p className="text-sm text-gray-400">No notes yet.</p>
             ) : (
               <div className="divide-y divide-gray-100">
-                {notes.map(note => (
-                  <div key={note.id} className="py-3">
-                    <div className="flex items-start justify-between gap-4">
-                      <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{note.content}</p>
-                      <button
-                        onClick={() => handleDeleteNote(note.id)}
-                        className="text-xs text-red-400 hover:text-red-600 flex-shrink-0 mt-0.5"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                    <p className="text-xs text-gray-400 mt-1">{formatDateTime(note.created_at)}</p>
-                  </div>
-                ))}
+{notes.map(note => (
+  <NoteItem
+    key={note.id}
+    note={note}
+    onDelete={handleDeleteNote}
+    onUpdate={async (noteId, newContent) => {
+      await supabase.from('notes').update({ content: newContent }).eq('id', noteId)
+      setNotes(prev => prev.map(n => n.id === noteId ? { ...n, content: newContent } : n))
+    }}
+  />
+))}
               </div>
             )}
           </div>
@@ -514,6 +511,73 @@ function RatingBadge({ rating }: { rating: number }) {
   const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating)
   return (
     <span className="text-sm text-amber-400 tracking-tight">{stars}</span>
+  )
+}
+
+function NoteItem({ note, onDelete, onUpdate }: {
+  note: Note
+  onDelete: (id: string) => void
+  onUpdate: (id: string, content: string) => Promise<void>
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(note.content)
+  const [saving, setSaving] = useState(false)
+
+  async function handleSave() {
+    if (!draft.trim()) return
+    setSaving(true)
+    await onUpdate(note.id, draft.trim())
+    setSaving(false)
+    setEditing(false)
+  }
+
+  return (
+    <div className="py-3">
+      {editing ? (
+        <div className="flex flex-col gap-2">
+          <textarea
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            rows={3}
+            className="text-sm border border-gray-300 rounded-lg px-3 py-2 text-gray-900 resize-none w-full"
+          />
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={() => { setEditing(false); setDraft(note.content) }}
+              className="text-sm text-gray-500 hover:text-gray-700"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving || !draft.trim()}
+              className="bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors"
+            >
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-start justify-between gap-4">
+          <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{note.content}</p>
+          <div className="flex gap-3 flex-shrink-0 mt-0.5">
+            <button
+              onClick={() => setEditing(true)}
+              className="text-xs text-blue-500 hover:text-blue-700"
+            >
+              Edit
+            </button>
+            <button
+              onClick={() => onDelete(note.id)}
+              className="text-xs text-red-400 hover:text-red-600"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
+      <p className="text-xs text-gray-400 mt-1">{formatDateTime(note.created_at)}</p>
+    </div>
   )
 }
 
