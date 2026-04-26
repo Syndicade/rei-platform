@@ -1,17 +1,17 @@
 'use client'
-
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 const navItems = [
-  { label: 'Dashboard',   href: '/dashboard' },
-  { label: 'Properties',  href: '/dashboard/properties' },
-  { label: 'Pipeline',    href: '/dashboard/pipeline' },
-  { label: 'Deals', href: '/dashboard/deals' },
-  { label: 'Contacts',    href: '/dashboard/contacts' },
-  { label: 'Documents',   href: '/dashboard/documents' },
-  { label: 'Map',         href: '/dashboard/map' },
+  { label: 'Dashboard',  href: '/dashboard' },
+  { label: 'Properties', href: '/dashboard/properties' },
+  { label: 'Pipeline',   href: '/dashboard/pipeline' },
+  { label: 'Deals',      href: '/dashboard/deals' },
+  { label: 'Buy Boxes',  href: '/dashboard/buy-boxes' },
+  { label: 'Contacts',   href: '/dashboard/contacts' },
+  { label: 'Documents',  href: '/dashboard/documents' },
+  { label: 'Map',        href: '/dashboard/map' },
 ]
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -25,8 +25,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex h-screen bg-gray-100">
-
-      {/* Sidebar */}
       <aside className="w-56 bg-gray-900 flex flex-col">
         <div className="px-6 py-5 border-b border-gray-700">
           <span className="text-white font-semibold text-sm tracking-wide">REI Platform</span>
@@ -55,14 +53,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </button>
         </div>
       </aside>
-
-      {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <main className="flex-1 overflow-y-auto p-8">
           {children}
         </main>
       </div>
-
     </div>
   )
 }
