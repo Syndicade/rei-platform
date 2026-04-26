@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import Image from 'next/image'
 import Link from 'next/link'
+import BuyBoxMatches from '@/components/BuyBoxMatches';
 
 type Property = {
   id: string
@@ -320,6 +321,29 @@ export default function PropertyDetailPage() {
           </Grid>
         </Section>
 
+ {/* Buy Box Matches */}        {/* ← ADD THIS BLOCK */}
+        {workspaceId && (
+          <BuyBoxMatches
+            property={{
+              id: property.id,
+              address: property.address,
+              property_type: property.property_type,
+              list_price: property.list_price,
+              opening_bid: property.opening_bid,
+              arv: property.arv,
+              bedrooms: property.bedrooms,
+              bathrooms: property.bathrooms,
+              sqft: property.sqft,
+              year_built: property.year_built,
+              hoa_monthly: property.hoa_monthly,
+              occupancy_status: property.occupancy_status,
+              county: property.county,
+              zip: property.zip,
+            }}
+            workspaceId={workspaceId}
+          />
+        )}
+        
         {/* Auction */}
         {hasAuctionData && (
           <Section title="Auction Details">
