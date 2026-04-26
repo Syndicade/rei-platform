@@ -79,7 +79,8 @@ export default function DashboardPage() {
       const alertList: AlertItem[] = []
 
       for (const deal of dealsData) {
-        const prop = deal.properties as { address: string; pipeline_status: string } | null
+        const propData = deal.properties as { address: string; pipeline_status: string } | { address: string; pipeline_status: string }[] | null
+const prop = Array.isArray(propData) ? (propData[0] ?? null) : propData
         if (!prop || prop.pipeline_status !== 'Under Contract') continue
 
         const tasks: Task[] = deal.deal_tasks || []
