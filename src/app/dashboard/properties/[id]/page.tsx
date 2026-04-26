@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 import Image from 'next/image'
@@ -39,6 +39,22 @@ type Property = {
   image_urls: string[] | null
 }
 
+type Document = {
+  id: string
+  name: string
+  url: string
+  type: string
+  created_at: string
+}
+
+type Note = {
+  id: string
+  content: string
+  created_at: string
+}
+
+const DOCUMENT_TYPES = ['Inspection Report', 'Purchase Agreement', 'Closing Doc', 'Photo', 'Other']
+
 export default function PropertyDetailPage() {
   const { id } = useParams()
   const router = useRouter()
@@ -50,9 +66,32 @@ export default function PropertyDetailPage() {
   const [property, setProperty] = useState<Property | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null)
+
+  // Documents state
+  const [documents, setDocuments] = useState<Document[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [docType, setDocType] = useState('Other')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Notes state
+  const [notes, setNotes] = useState<Note[]>([])
+  const [newNote, setNewNote] = useState('')
+  const [savingNote, setSavingNote] = useState(false)
 
   useEffect(() => {
     async function load() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data: member } = await supabase
+        .from('workspace_members')
+        .select('workspace_id')
+        .eq('user_id', user.id)
+        .single()
+
+      if (member) setWorkspaceId(member.workspace_id)
+
       const { data, error } = await supabase
         .from('properties')
         .select('*')
@@ -64,10 +103,118 @@ export default function PropertyDetailPage() {
       } else {
         setProperty(data)
       }
+
+      const { data: docs } = await supabase
+        .from('documents')
+        .select('*')
+        .eq('property_id', id)
+        .order('created_at', { ascending: false })
+
+      setDocuments(docs ?? [])
+
+      const { data: noteData } = await supabase
+        .from('notes')
+        .select('*')
+        .eq('property_id', id)
+        .order('created_at', { ascending: false })
+
+      setNotes(noteData ?? [])
+
       setLoading(false)
     }
     load()
   }, [id])
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !workspaceId) return
+
+    setUploading(true)
+    const path = `${workspaceId}/${id}/${Date.now()}-${file.name}`
+
+    const { error: uploadError } = await supabase.storage
+      .from('property-documents')
+      .upload(path, file)
+
+    if (uploadError) {
+      alert('Upload failed: ' + uploadError.message)
+      setUploading(false)
+      return
+    }
+
+    const { error: insertError } = await supabase
+      .from('documents')
+      .insert({
+        workspace_id: workspaceId,
+        property_id: id,
+        name: file.name,
+        url: path,
+        type: docType,
+      })
+
+    if (insertError) {
+      alert('Failed to save document record.')
+    } else {
+      const { data: docs } = await supabase
+        .from('documents')
+        .select('*')
+        .eq('property_id', id)
+        .order('created_at', { ascending: false })
+      setDocuments(docs ?? [])
+    }
+
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    setUploading(false)
+  }
+
+  async function handleDownload(doc: Document) {
+    const { data, error } = await supabase.storage
+      .from('property-documents')
+      .createSignedUrl(doc.url, 60)
+
+    if (error || !data) {
+      alert('Could not generate download link.')
+      return
+    }
+
+    window.open(data.signedUrl, '_blank')
+  }
+
+  async function handleDeleteDocument(doc: Document) {
+    if (!confirm(`Delete "${doc.name}"?`)) return
+    await supabase.storage.from('property-documents').remove([doc.url])
+    await supabase.from('documents').delete().eq('id', doc.id)
+    setDocuments(prev => prev.filter(d => d.id !== doc.id))
+  }
+
+  async function handleAddNote() {
+    if (!newNote.trim() || !workspaceId) return
+    setSavingNote(true)
+
+    const { error } = await supabase.from('notes').insert({
+      workspace_id: workspaceId,
+      property_id: id,
+      content: newNote.trim(),
+    })
+
+    if (!error) {
+      const { data } = await supabase
+        .from('notes')
+        .select('*')
+        .eq('property_id', id)
+        .order('created_at', { ascending: false })
+      setNotes(data ?? [])
+      setNewNote('')
+    }
+
+    setSavingNote(false)
+  }
+
+  async function handleDeleteNote(noteId: string) {
+    if (!confirm('Delete this note?')) return
+    await supabase.from('notes').delete().eq('id', noteId)
+    setNotes(prev => prev.filter(n => n.id !== noteId))
+  }
 
   if (loading) {
     return <div className="py-20 text-center text-gray-400 text-sm">Loading...</div>
@@ -97,13 +244,13 @@ export default function PropertyDetailPage() {
           </div>
           <div className="flex items-center gap-3 flex-shrink-0">
             {property.rating && <RatingBadge rating={property.rating} />}
-<StatusBadge status={property.pipeline_status} />
-{property.pipeline_status === 'Under Contract' && (
-  <Link href={`/dashboard/deals/${property.id}`} className="text-sm text-blue-600 hover:underline">
-    View Deal Tracker &rarr;
-  </Link>
-)}
-<Link
+            <StatusBadge status={property.pipeline_status} />
+            {property.pipeline_status === 'Under Contract' && (
+              <Link href={`/dashboard/deals/${property.id}`} className="text-sm text-blue-600 hover:underline">
+                View Deal Tracker &rarr;
+              </Link>
+            )}
+            <Link
               href={`/dashboard/properties/${property.id}/financials`}
               className="bg-white hover:bg-gray-50 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg border border-gray-300 transition-colors"
             >
@@ -173,7 +320,7 @@ export default function PropertyDetailPage() {
           </Grid>
         </Section>
 
-        {/* Auction — only shown if any auction data exists */}
+        {/* Auction */}
         {hasAuctionData && (
           <Section title="Auction Details">
             <Grid>
@@ -206,12 +353,113 @@ export default function PropertyDetailPage() {
           </Grid>
         </Section>
 
-        {/* Notes */}
+        {/* Description (property.notes from the property record) */}
         {property.notes && (
-          <Section title="Notes">
+          <Section title="Description">
             <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{property.notes}</p>
           </Section>
         )}
+
+        {/* Documents */}
+        <Section title="Documents">
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <select
+                value={docType}
+                onChange={e => setDocType(e.target.value)}
+                className="text-sm border border-gray-300 rounded-lg px-3 py-2 text-gray-700 bg-white"
+              >
+                {DOCUMENT_TYPES.map(t => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+              <label className="cursor-pointer bg-gray-800 hover:bg-gray-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+                {uploading ? 'Uploading...' : 'Upload File'}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                  disabled={uploading}
+                />
+              </label>
+            </div>
+
+            {documents.length === 0 ? (
+              <p className="text-sm text-gray-400">No documents uploaded yet.</p>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {documents.map(doc => (
+                  <div key={doc.id} className="flex items-center justify-between py-3">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">{doc.name}</p>
+                      <p className="text-xs text-gray-400">{doc.type} &middot; {formatDate(doc.created_at)}</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => handleDownload(doc)}
+                        className="text-sm text-blue-600 hover:underline"
+                      >
+                        Download
+                      </button>
+                      <button
+                        onClick={() => handleDeleteDocument(doc)}
+                        className="text-sm text-red-400 hover:text-red-600"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Section>
+
+        {/* Notes */}
+        <Section title="Notes">
+          <div className="space-y-4">
+            <div className="flex flex-col gap-2">
+              <textarea
+                value={newNote}
+                onChange={e => setNewNote(e.target.value)}
+                placeholder="Add a note..."
+                rows={3}
+                className="text-sm border border-gray-300 rounded-lg px-3 py-2 text-gray-900 placeholder-gray-400 resize-none w-full"
+              />
+              <div className="flex justify-end">
+                <button
+                  onClick={handleAddNote}
+                  disabled={savingNote || !newNote.trim()}
+                  className="bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                >
+                  {savingNote ? 'Saving...' : 'Add Note'}
+                </button>
+              </div>
+            </div>
+
+            {notes.length === 0 ? (
+              <p className="text-sm text-gray-400">No notes yet.</p>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {notes.map(note => (
+                  <div key={note.id} className="py-3">
+                    <div className="flex items-start justify-between gap-4">
+                      <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{note.content}</p>
+                      <button
+                        onClick={() => handleDeleteNote(note.id)}
+                        className="text-xs text-red-400 hover:text-red-600 flex-shrink-0 mt-0.5"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">{formatDateTime(note.created_at)}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Section>
 
         {/* Record Info */}
         <Section title="Record Info">
@@ -279,5 +527,15 @@ function formatDate(dateString: string): string {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
+  })
+}
+
+function formatDateTime(dateString: string): string {
+  return new Date(dateString).toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
   })
 }
