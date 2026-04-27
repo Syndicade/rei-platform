@@ -115,7 +115,6 @@ export default function MapPage() {
     const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
     if (!token) { setError('Mapbox token not configured'); return }
 
-    // Inject Mapbox CSS from CDN (avoids Next.js CSS-in-client-component issues)
     if (!document.getElementById('mapbox-css')) {
       const link = document.createElement('link')
       link.id = 'mapbox-css'
@@ -124,10 +123,8 @@ export default function MapPage() {
       document.head.appendChild(link)
     }
 
-    // Dynamic import avoids SSR crash
     import('mapbox-gl').then(({ default: mapboxgl }) => {
       if (!mapContainer.current) return
-
       mapboxgl.accessToken = token
 
       const map = new mapboxgl.Map({
@@ -149,38 +146,57 @@ export default function MapPage() {
 
           const color = STATUS_COLORS[prop.pipeline_status] ?? DEFAULT_COLOR
 
+          // Marker element
           const el = document.createElement('div')
           Object.assign(el.style, {
-            width: '14px', height: '14px', borderRadius: '50%',
-            background: color, border: '2.5px solid white',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.3)', cursor: 'pointer',
+            width: '16px',
+            height: '16px',
+            borderRadius: '50%',
+            background: color,
+            border: '2.5px solid white',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.35)',
+            cursor: 'pointer',
             transition: 'transform 0.15s ease',
           })
-el.addEventListener('mouseenter', () => { el.style.transform = 'scale(1.5)' })
-el.addEventListener('mouseleave', () => { el.style.transform = 'scale(1)' })
-el.addEventListener('click', (e) => {
-  e.stopPropagation()
-  marker.togglePopup()
-})
+          el.addEventListener('mouseenter', () => { el.style.transform = 'scale(1.5)' })
+          el.addEventListener('mouseleave', () => { el.style.transform = 'scale(1)' })
 
-          const popup = new mapboxgl.Popup({ offset: 18, maxWidth: '260px' })
-            .setHTML(`
-              <div style="font-family:ui-sans-serif,system-ui,sans-serif;padding:2px 0">
-                <p style="margin:0 0 2px;font-size:13px;font-weight:600;color:#111827">${prop.address}</p>
-                <p style="margin:0 0 8px;font-size:12px;color:#6b7280">${prop.city}, ${prop.state} ${prop.zip}</p>
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-                  <span style="font-size:14px;font-weight:700;color:#111827">${formatPrice(prop.list_price, prop.opening_bid)}</span>
-                  <span style="font-size:11px;font-weight:500;background:${color}22;color:${color};padding:2px 8px;border-radius:999px">${prop.pipeline_status}</span>
-                </div>
-                <a href="/dashboard/properties/${prop.id}" style="font-size:12px;font-weight:600;color:#4f46e5;text-decoration:none">View property →</a>
+          // Build popup
+          const popup = new mapboxgl.Popup({
+            offset: 20,
+            maxWidth: '260px',
+            closeButton: true,
+            focusAfterOpen: false,
+          }).setHTML(`
+            <div style="font-family:ui-sans-serif,system-ui,sans-serif;padding:4px 2px">
+              <p style="margin:0 0 2px;font-size:13px;font-weight:600;color:#111827;line-height:1.3">${prop.address}</p>
+              <p style="margin:0 0 8px;font-size:12px;color:#6b7280">${prop.city}, ${prop.state} ${prop.zip}</p>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+                <span style="font-size:14px;font-weight:700;color:#111827">${formatPrice(prop.list_price, prop.opening_bid)}</span>
+                <span style="font-size:11px;font-weight:500;background:${color}22;color:${color};padding:2px 8px;border-radius:999px">${prop.pipeline_status}</span>
               </div>
-            `)
+              <a href="/dashboard/properties/${prop.id}" style="font-size:12px;font-weight:600;color:#4f46e5;text-decoration:none">View property →</a>
+            </div>
+          `)
 
-          const marker = new mapboxgl.Marker({ element: el })
+          // Create marker WITHOUT attaching popup in constructor
+          const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
             .setLngLat([prop.longitude!, prop.latitude!])
             .addTo(map)
 
-        marker.setPopup(popup)
+          // Attach popup separately
+          marker.setPopup(popup)
+
+          // Click on the dot element opens popup — stopPropagation prevents map drag
+          el.addEventListener('click', (e) => {
+            e.stopPropagation()
+            if (popup.isOpen()) {
+              popup.remove()
+            } else {
+              marker.togglePopup()
+            }
+          })
+
           markersRef.current.push(marker)
         })
       })
@@ -205,10 +221,10 @@ el.addEventListener('click', (e) => {
     }}>
       {/* Header */}
       <div style={{
-        padding: '16px 24px', background: 'white',
+        padding: '14px 24px', background: 'white',
         borderBottom: '1px solid #e5e7eb',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        flexShrink: 0,
+        flexShrink: 0, zIndex: 1,
       }}>
         <div>
           <h1 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#111827' }}>Map View</h1>
@@ -224,7 +240,7 @@ el.addEventListener('click', (e) => {
           )}
         </div>
         {!loading && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px 20px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 18px' }}>
             {Object.entries(STATUS_COLORS).map(([label, color]) => (
               <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span style={{
