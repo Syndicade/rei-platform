@@ -16,6 +16,14 @@ const STATUS_COLORS: Record<string, string> = {
 }
 const DEFAULT_COLOR = '#94a3b8'
 
+// All possible status values mapped for Mapbox match expression
+const STATUS_MATCH_EXPRESSION = [
+  'match',
+  ['get', 'status'],
+  ...Object.entries(STATUS_COLORS).flatMap(([k, v]) => [k, v]),
+  DEFAULT_COLOR,
+]
+
 type Property = {
   id: string
   address: string
@@ -48,12 +56,32 @@ function formatPrice(list: number | null, bid: number | null) {
   return p ? `$${p.toLocaleString()}` : 'Price N/A'
 }
 
+function buildGeoJSON(props: Property[]) {
+  return {
+    type: 'FeatureCollection' as const,
+    features: props
+      .filter(p => p.latitude != null && p.longitude != null)
+      .map(p => ({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [p.longitude!, p.latitude!] },
+        properties: {
+          id: p.id,
+          address: p.address,
+          city: p.city,
+          state: p.state,
+          zip: p.zip,
+          price: formatPrice(p.list_price, p.opening_bid),
+          status: p.pipeline_status,
+          color: STATUS_COLORS[p.pipeline_status] ?? DEFAULT_COLOR,
+        },
+      })),
+  }
+}
+
 export default function MapPage() {
   const mapContainer = useRef<HTMLDivElement>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapRef = useRef<any>(null)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const markersRef = useRef<any[]>([])
 
   const [properties, setProperties] = useState<Property[]>([])
   const [loading, setLoading] = useState(true)
@@ -65,7 +93,7 @@ export default function MapPage() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 
-  // ── Load properties ────────────────────────────────────────────────────────
+  // ── Load + geocode ─────────────────────────────────────────────────────────
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
@@ -82,8 +110,8 @@ export default function MapPage() {
       if (e) { setError(e.message); setLoading(false); return }
 
       const props: Property[] = data ?? []
-
       const missing = props.filter(p => p.latitude == null || p.longitude == null)
+
       if (missing.length > 0) {
         setGeocodeProgress({ done: 0, total: missing.length })
         const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!
@@ -138,66 +166,74 @@ export default function MapPage() {
       map.addControl(new mapboxgl.ScaleControl({ unit: 'imperial' }), 'bottom-left')
 
       map.on('load', () => {
-        markersRef.current.forEach(m => m.remove())
-        markersRef.current = []
+        const geojson = buildGeoJSON(properties)
 
-        properties.forEach(prop => {
-          if (prop.latitude == null || prop.longitude == null) return
+        // Add GeoJSON source
+        map.addSource('properties', { type: 'geojson', data: geojson })
 
-          const color = STATUS_COLORS[prop.pipeline_status] ?? DEFAULT_COLOR
+        // Outer white circle (border)
+        map.addLayer({
+          id: 'property-pins-border',
+          type: 'circle',
+          source: 'properties',
+          paint: {
+            'circle-radius': 9,
+            'circle-color': '#ffffff',
+            'circle-opacity': 1,
+          },
+        })
 
-          // Marker element
-          const el = document.createElement('div')
-          Object.assign(el.style, {
-            width: '16px',
-            height: '16px',
-            borderRadius: '50%',
-            background: color,
-            border: '2.5px solid white',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.35)',
-            cursor: 'pointer',
-            transition: 'transform 0.15s ease',
-          })
-          el.addEventListener('mouseenter', () => { el.style.transform = 'scale(1.5)' })
-          el.addEventListener('mouseleave', () => { el.style.transform = 'scale(1)' })
+        // Inner colored circle
+        map.addLayer({
+          id: 'property-pins',
+          type: 'circle',
+          source: 'properties',
+          paint: {
+            'circle-radius': 7,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            'circle-color': STATUS_MATCH_EXPRESSION as any,
+            'circle-opacity': 1,
+            'circle-stroke-width': 0,
+          },
+        })
 
-          // Build popup
-          const popup = new mapboxgl.Popup({
-            offset: 20,
-            maxWidth: '260px',
-            closeButton: true,
-            focusAfterOpen: false,
-          }).setHTML(`
-            <div style="font-family:ui-sans-serif,system-ui,sans-serif;padding:4px 2px">
-              <p style="margin:0 0 2px;font-size:13px;font-weight:600;color:#111827;line-height:1.3">${prop.address}</p>
-              <p style="margin:0 0 8px;font-size:12px;color:#6b7280">${prop.city}, ${prop.state} ${prop.zip}</p>
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-                <span style="font-size:14px;font-weight:700;color:#111827">${formatPrice(prop.list_price, prop.opening_bid)}</span>
-                <span style="font-size:11px;font-weight:500;background:${color}22;color:${color};padding:2px 8px;border-radius:999px">${prop.pipeline_status}</span>
+        // Hover effect
+        map.on('mouseenter', 'property-pins', () => {
+          map.getCanvas().style.cursor = 'pointer'
+          map.setPaintProperty('property-pins', 'circle-radius', 10)
+        })
+        map.on('mouseleave', 'property-pins', () => {
+          map.getCanvas().style.cursor = ''
+          map.setPaintProperty('property-pins', 'circle-radius', 7)
+        })
+
+        // Click → popup
+        map.on('click', 'property-pins', (e) => {
+          if (!e.features?.[0]) return
+          const props = e.features[0].properties as {
+            id: string; address: string; city: string; state: string
+            zip: string; price: string; status: string; color: string
+          }
+          const coords = (e.features[0].geometry as GeoJSON.Point).coordinates as [number, number]
+          const color = props.color
+
+          new mapboxgl.Popup({ offset: 14, maxWidth: '270px', closeButton: true })
+            .setLngLat(coords)
+            .setHTML(`
+              <div style="font-family:ui-sans-serif,system-ui,sans-serif;padding:4px 2px">
+                <p style="margin:0 0 2px;font-size:13px;font-weight:600;color:#111827;line-height:1.3">${props.address}</p>
+                <p style="margin:0 0 10px;font-size:12px;color:#6b7280">${props.city}, ${props.state} ${props.zip}</p>
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                  <span style="font-size:15px;font-weight:700;color:#111827">${props.price}</span>
+                  <span style="font-size:11px;font-weight:500;background:${color}22;color:${color};padding:2px 9px;border-radius:999px">${props.status}</span>
+                </div>
+                <a
+                  href="/dashboard/properties/${props.id}"
+                  style="display:inline-block;font-size:12px;font-weight:600;color:#4f46e5;text-decoration:none;padding:6px 14px;background:#eef2ff;border-radius:6px"
+                >View property →</a>
               </div>
-              <a href="/dashboard/properties/${prop.id}" style="font-size:12px;font-weight:600;color:#4f46e5;text-decoration:none">View property →</a>
-            </div>
-          `)
-
-          // Create marker WITHOUT attaching popup in constructor
-          const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
-            .setLngLat([prop.longitude!, prop.latitude!])
+            `)
             .addTo(map)
-
-          // Attach popup separately
-          marker.setPopup(popup)
-
-          // Click on the dot element opens popup — stopPropagation prevents map drag
-          el.addEventListener('click', (e) => {
-            e.stopPropagation()
-            if (popup.isOpen()) {
-              popup.remove()
-            } else {
-              marker.togglePopup()
-            }
-          })
-
-          markersRef.current.push(marker)
         })
       })
 
@@ -260,8 +296,7 @@ export default function MapPage() {
         {loading && (
           <div style={{
             position: 'absolute', inset: 0, display: 'flex',
-            alignItems: 'center', justifyContent: 'center', zIndex: 10,
-            background: '#f3f4f6',
+            alignItems: 'center', justifyContent: 'center', zIndex: 10, background: '#f3f4f6',
           }}>
             <div style={{ textAlign: 'center' }}>
               <div style={{
