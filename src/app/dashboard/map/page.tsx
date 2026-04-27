@@ -156,8 +156,12 @@ export default function MapPage() {
             boxShadow: '0 2px 6px rgba(0,0,0,0.3)', cursor: 'pointer',
             transition: 'transform 0.15s ease',
           })
-          el.addEventListener('mouseenter', () => { el.style.transform = 'scale(1.5)' })
-          el.addEventListener('mouseleave', () => { el.style.transform = 'scale(1)' })
+el.addEventListener('mouseenter', () => { el.style.transform = 'scale(1.5)' })
+el.addEventListener('mouseleave', () => { el.style.transform = 'scale(1)' })
+el.addEventListener('click', (e) => {
+  e.stopPropagation()
+  marker.togglePopup()
+})
 
           const popup = new mapboxgl.Popup({ offset: 18, maxWidth: '260px' })
             .setHTML(`
@@ -174,9 +178,9 @@ export default function MapPage() {
 
           const marker = new mapboxgl.Marker({ element: el })
             .setLngLat([prop.longitude!, prop.latitude!])
-            .setPopup(popup)
             .addTo(map)
 
+        marker.setPopup(popup)
           markersRef.current.push(marker)
         })
       })
