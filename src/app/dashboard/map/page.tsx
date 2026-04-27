@@ -245,7 +245,7 @@ export default function MapPage() {
   const placedCount = properties.filter(p => p.latitude != null).length
 
   return (
-    <div className="flex flex-col h-full bg-gray-100">
+    <div className="flex flex-col bg-gray-100" style={{ height: 'calc(100vh - 64px)' }}>
       {/* Header */}
       <div className="px-6 py-4 bg-white border-b border-gray-200 flex items-center justify-between">
         <div>
@@ -279,7 +279,7 @@ export default function MapPage() {
       </div>
 
       {/* Map area */}
-      <div className="flex-1 relative">
+      <div className="relative flex-1" style={{ minHeight: 0 }}>
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-100 z-10">
             <div className="text-center">
