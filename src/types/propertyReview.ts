@@ -7,8 +7,9 @@ export interface PropertyReview {
   workspace_id: string
   property_id: string
   action: ReviewAction
-  snoozed_until: string | null   // ISO date string
+  snoozed_until: string | null
   dismissed_price: number | null
+  is_favorite: boolean
   created_at: string
   updated_at: string
 }
