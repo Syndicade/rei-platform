@@ -244,8 +244,8 @@ export default function MapPage() {
   const legendItems = Object.entries(STATUS_COLORS)
   const placedCount = properties.filter(p => p.latitude != null).length
 
-  return (
-    <div className="flex flex-col bg-gray-100" style={{ height: 'calc(100vh - 64px)' }}>
+return (
+    <div className="flex flex-col bg-gray-100" style={{ position: 'fixed', top: 0, left: 144, right: 0, bottom: 0 }}>
       {/* Header */}
       <div className="px-6 py-4 bg-white border-b border-gray-200 flex items-center justify-between">
         <div>
