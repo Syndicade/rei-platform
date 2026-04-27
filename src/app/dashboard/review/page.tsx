@@ -104,7 +104,7 @@ function MatchCard({ match }: { match: BuyBoxMatch }) {
             {match.isMatch ? '✓ Match' : `${pct}%`}
           </span>
           <span className="text-sm font-medium text-gray-800 truncate">
-            {match.buyBoxName}
+            {match.buyBox.name}
           </span>
           <span className="text-xs text-gray-400 whitespace-nowrap">
             {match.passedCount}/{match.totalCount} criteria
